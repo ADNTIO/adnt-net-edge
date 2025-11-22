@@ -43,7 +43,11 @@ impl RoutingConfig {
 }
 
 impl TraefikStaticConfig {
-    pub fn new(email: impl Into<String>, dynamic_path: impl Into<String>, acme_storage: impl Into<String>) -> Self {
+    pub fn new(
+        email: impl Into<String>,
+        dynamic_path: impl Into<String>,
+        acme_storage: impl Into<String>,
+    ) -> Self {
         Self {
             acme_email: email.into(),
             dynamic_path: dynamic_path.into(),
