@@ -1,0 +1,17 @@
+# Tarpaulin configuration
+# See: https://github.com/xd009642/tarpaulin
+
+[config]
+# Target coverage threshold (realistic for this integration-heavy codebase)
+# Most code involves SSH, SCP, Docker operations that require external systems
+# Core business logic (traefik config, SSH args building) is fully tested
+fail-under = 35
+
+# Run with --workspace flag
+workspace = true
+
+# Timeout for tests (seconds)
+timeout = 120
+
+# Generate detailed HTML report
+out = ["Html", "Lcov"]

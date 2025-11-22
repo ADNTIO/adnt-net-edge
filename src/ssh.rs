@@ -29,7 +29,7 @@ pub struct SshTunnel {
 }
 
 impl SshTunnel {
-    #[cfg_attr(tarpaulin, skip)]
+    // Skip coverage: requires actual SSH binary and external system
     pub async fn start(config: TunnelConfig) -> Result<Self> {
         let args = build_args(&config);
         tracing::info!("starting ssh tunnel: ssh {}", args.join(" "));
@@ -50,7 +50,7 @@ impl SshTunnel {
         Ok(Self { child })
     }
 
-    #[cfg_attr(tarpaulin, skip)]
+    // Skip coverage: requires actual SSH process
     pub async fn wait(&mut self) -> Result<()> {
         let status = self.child.wait().await?;
         if status.success() {
@@ -87,4 +87,74 @@ fn build_args(config: &TunnelConfig) -> Vec<String> {
     args.push(format!("{}@{}", config.user, config.host));
 
     args
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_build_args_basic() {
+        let config = TunnelConfig {
+            host: "example.com".to_string(),
+            user: "testuser".to_string(),
+            ssh_port: 22,
+            reverse_port: 8080,
+            local_port: 3000,
+            keep_alive_secs: 30,
+            extra_args: Vec::new(),
+            identity_file: None,
+        };
+
+        let args = build_args(&config);
+
+        assert_eq!(args[0], "-NT");
+        assert_eq!(args[1], "-p");
+        assert_eq!(args[2], "22");
+        assert!(args.contains(&"ServerAliveInterval=30".to_string()));
+        assert!(args.contains(&"8080:127.0.0.1:3000".to_string()));
+        assert_eq!(args.last().unwrap(), "testuser@example.com");
+    }
+
+    #[test]
+    fn test_build_args_with_identity() {
+        let config = TunnelConfig {
+            host: "example.com".to_string(),
+            user: "root".to_string(),
+            ssh_port: 2222,
+            reverse_port: 9000,
+            local_port: 4000,
+            keep_alive_secs: 60,
+            extra_args: Vec::new(),
+            identity_file: Some("/path/to/key".to_string()),
+        };
+
+        let args = build_args(&config);
+
+        assert!(args.contains(&"-i".to_string()));
+        assert!(args.contains(&"/path/to/key".to_string()));
+    }
+
+    #[test]
+    fn test_build_args_with_extra_args() {
+        let config = TunnelConfig {
+            host: "example.com".to_string(),
+            user: "admin".to_string(),
+            ssh_port: 22,
+            reverse_port: 8080,
+            local_port: 3000,
+            keep_alive_secs: 30,
+            extra_args: vec![
+                "-v".to_string(),
+                "-o".to_string(),
+                "ConnectTimeout=10".to_string(),
+            ],
+            identity_file: None,
+        };
+
+        let args = build_args(&config);
+
+        assert!(args.contains(&"-v".to_string()));
+        assert!(args.contains(&"ConnectTimeout=10".to_string()));
+    }
 }
