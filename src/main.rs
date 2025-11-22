@@ -102,7 +102,6 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-#[cfg_attr(tarpaulin, skip)]
 fn build_config(cli: &Cli) -> Result<TunnelConfig> {
     let parsed_remote = Url::parse(&cli.url).map_err(GatewayError::InvalidUrl)?;
     let ssh_host = cli
@@ -126,7 +125,6 @@ fn build_config(cli: &Cli) -> Result<TunnelConfig> {
     })
 }
 
-#[cfg_attr(tarpaulin, skip)]
 async fn run_tunnel(tunnel_cfg: TunnelConfig) -> Result<()> {
     let mut tunnel = ssh::SshTunnel::start(tunnel_cfg).await?;
     tunnel.wait().await
@@ -173,7 +171,6 @@ async fn run_with_shutdown(
     result
 }
 
-#[cfg_attr(tarpaulin, skip)]
 async fn resolve_remote_port(tunnel: &TunnelConfig, requested: u16) -> Result<u16> {
     if requested != 0 {
         return Ok(requested);
@@ -181,7 +178,6 @@ async fn resolve_remote_port(tunnel: &TunnelConfig, requested: u16) -> Result<u1
     pick_remote_free_port(tunnel).await
 }
 
-#[cfg_attr(tarpaulin, skip)]
 async fn pick_remote_free_port(tunnel: &TunnelConfig) -> Result<u16> {
     let script = "python3 - <<'PY'\nimport socket\ns=socket.socket()\ns.bind(('',0))\nprint(s.getsockname()[1])\nPY";
     let output = run_remote_capture(tunnel, script).await?;
@@ -189,7 +185,6 @@ async fn pick_remote_free_port(tunnel: &TunnelConfig) -> Result<u16> {
     Ok(port)
 }
 
-#[cfg_attr(tarpaulin, skip)]
 async fn deploy_traefik(
     tunnel: &TunnelConfig,
     dynamic_yaml: &str,
@@ -262,7 +257,6 @@ async fn deploy_traefik(
     })
 }
 
-#[cfg_attr(tarpaulin, skip)]
 async fn scp_upload(tunnel: &TunnelConfig, local: &std::path::Path, remote: &str) -> Result<()> {
     let mut args = Vec::new();
     args.push("-P".to_string());
@@ -297,7 +291,6 @@ async fn scp_upload(tunnel: &TunnelConfig, local: &std::path::Path, remote: &str
     Ok(())
 }
 
-#[cfg_attr(tarpaulin, skip)]
 async fn run_remote_command(tunnel: &TunnelConfig, cmd: &str) -> Result<()> {
     let status = run_remote_status(tunnel, cmd).await?;
     if !status.success() {
@@ -306,7 +299,6 @@ async fn run_remote_command(tunnel: &TunnelConfig, cmd: &str) -> Result<()> {
     Ok(())
 }
 
-#[cfg_attr(tarpaulin, skip)]
 async fn run_remote_status(tunnel: &TunnelConfig, cmd: &str) -> Result<std::process::ExitStatus> {
     let mut args = Vec::new();
     args.push("-p".to_string());
@@ -340,7 +332,6 @@ async fn run_remote_status(tunnel: &TunnelConfig, cmd: &str) -> Result<std::proc
     Ok(status)
 }
 
-#[cfg_attr(tarpaulin, skip)]
 async fn run_remote_capture(tunnel: &TunnelConfig, cmd: &str) -> Result<String> {
     let mut args = Vec::new();
     args.push("-p".to_string());
@@ -414,6 +405,115 @@ mod tests {
         assert_eq!(cfg.host, "example.com");
         assert_eq!(cfg.user, "root");
         assert_eq!(cfg.local_port, 8080);
+    }
+
+    #[test]
+    fn build_config_uses_explicit_ssh_host() {
+        let cli = Cli {
+            url: "https://example.com/app".into(),
+            port: 3000,
+            ssh_user: "admin".into(),
+            ssh_host: Some("ssh.example.com".into()),
+            ssh_port: 2222,
+            remote_port: 9000,
+            deploy_traefik: false,
+            traefik_acme_email: "test@example.com".into(),
+            traefik_static_path: "/etc/traefik/traefik.yaml".into(),
+            traefik_dynamic_path: "/etc/traefik/dynamic.yaml".into(),
+            identity: None,
+            traefik_output: None,
+            log: "debug".into(),
+        };
+
+        let cfg = build_config(&cli).expect("config");
+        assert_eq!(cfg.host, "ssh.example.com");
+        assert_eq!(cfg.user, "admin");
+        assert_eq!(cfg.ssh_port, 2222);
+        assert_eq!(cfg.local_port, 3000);
+        assert_eq!(cfg.reverse_port, 9000);
+    }
+
+    #[test]
+    fn build_config_with_identity_file() {
+        let cli = Cli {
+            url: "https://test.com".into(),
+            port: 5000,
+            ssh_user: "deploy".into(),
+            ssh_host: None,
+            ssh_port: 22,
+            remote_port: 0,
+            deploy_traefik: true,
+            traefik_acme_email: "test@example.com".into(),
+            traefik_static_path: "/etc/traefik/traefik.yaml".into(),
+            traefik_dynamic_path: "/etc/traefik/dynamic.yaml".into(),
+            identity: Some(PathBuf::from("/home/user/.ssh/id_rsa")),
+            traefik_output: None,
+            log: "info".into(),
+        };
+
+        let cfg = build_config(&cli).expect("config");
+        assert_eq!(
+            cfg.identity_file,
+            Some("/home/user/.ssh/id_rsa".to_string())
+        );
+    }
+
+    #[test]
+    fn build_config_invalid_url() {
+        let cli = Cli {
+            url: "not-a-valid-url".into(),
+            port: 8080,
+            ssh_user: "root".into(),
+            ssh_host: None,
+            ssh_port: 22,
+            remote_port: 0,
+            deploy_traefik: true,
+            traefik_acme_email: "test@example.com".into(),
+            traefik_static_path: "/etc/traefik/traefik.yaml".into(),
+            traefik_dynamic_path: "/etc/traefik/dynamic.yaml".into(),
+            identity: None,
+            traefik_output: None,
+            log: "info".into(),
+        };
+
+        let result = build_config(&cli);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_remote_target() {
+        let config = TunnelConfig {
+            host: "example.com".to_string(),
+            user: "testuser".to_string(),
+            ssh_port: 22,
+            reverse_port: 8080,
+            local_port: 3000,
+            keep_alive_secs: 30,
+            extra_args: Vec::new(),
+            identity_file: None,
+        };
+
+        assert_eq!(remote_target(&config), "testuser@example.com");
+    }
+
+    #[test]
+    fn test_remote_base_dir() {
+        assert_eq!(remote_base_dir(), "/tmp/adnt-net-edge");
+    }
+
+    #[test]
+    fn test_render_traefik() {
+        let routing = RoutingConfig {
+            domain: "test.com".to_string(),
+            path: Some("/api".to_string()),
+            reverse_port: 3000,
+        };
+
+        let result = render_traefik(&routing, None);
+        assert!(result.is_ok());
+        let yaml = result.unwrap();
+        assert!(yaml.contains("test.com"));
+        assert!(yaml.contains("/api"));
     }
 }
 struct RemoteDeployment {

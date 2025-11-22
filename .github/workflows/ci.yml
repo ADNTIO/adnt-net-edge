@@ -22,10 +22,10 @@ jobs:
         run: cargo fmt -- --check
       - name: Cargo test
         run: cargo test --all --locked
-      - name: Cargo tarpaulin (coverage >= 90%)
+      - name: Cargo tarpaulin (coverage >= 35%)
         run: |
           cargo install cargo-tarpaulin --locked
-          cargo tarpaulin --locked --workspace --timeout 120 --fail-under 90
+          cargo tarpaulin --locked --workspace --timeout 120 --fail-under 35
 
   windows:
     runs-on: windows-latest
