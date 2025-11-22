@@ -34,3 +34,39 @@ pub enum GatewayError {
 }
 
 pub type Result<T> = std::result::Result<T, GatewayError>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_error_display_invalid_url() {
+        let err = GatewayError::InvalidUrl(url::ParseError::EmptyHost);
+        assert!(err.to_string().contains("invalid url"));
+    }
+
+    #[test]
+    fn test_error_display_ssh_missing() {
+        let err = GatewayError::SshMissing;
+        assert_eq!(err.to_string(), "ssh binary not found in PATH");
+    }
+
+    #[test]
+    fn test_error_display_scp_missing() {
+        let err = GatewayError::ScpMissing;
+        assert_eq!(err.to_string(), "scp binary not found in PATH");
+    }
+
+    #[test]
+    fn test_error_display_missing_acme_email() {
+        let err = GatewayError::MissingAcmeEmail;
+        assert_eq!(err.to_string(), "missing ACME email for Traefik deployment");
+    }
+
+    #[test]
+    fn test_error_from_parse_int() {
+        let parse_err = "not_a_number".parse::<u16>().unwrap_err();
+        let gateway_err: GatewayError = parse_err.into();
+        assert!(gateway_err.to_string().contains("failed to parse port"));
+    }
+}
