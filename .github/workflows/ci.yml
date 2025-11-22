@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+      - name: Cargo fmt
+        run: cargo fmt -- --check
+      - name: Cargo test
+        run: cargo test --all --locked
+      - name: Cargo tarpaulin (coverage >= 90%)
+        run: |
+          cargo install cargo-tarpaulin --locked
+          cargo tarpaulin --locked --workspace --timeout 120 --fail-under 90
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+      - name: Check ssh/scp availability
+        shell: bash
+        run: |
+          set -e
+          ssh -V
+          scp -V
+      - name: Cargo fmt
+        run: cargo fmt -- --check
+      - name: Cargo test
+        run: cargo test --all --locked
