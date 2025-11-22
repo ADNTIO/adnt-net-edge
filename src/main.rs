@@ -5,7 +5,6 @@
 // the Free Software Foundation, either version 3 of the License, or
 // any later version.
 
-
 mod error;
 mod ssh;
 mod traefik;
@@ -150,7 +149,10 @@ fn init_tracing(filter: &str) {
     tracing_subscriber::fmt().with_env_filter(env_filter).init();
 }
 
-async fn run_with_shutdown(tunnel_cfg: TunnelConfig, deployment: Option<RemoteDeployment>) -> Result<()> {
+async fn run_with_shutdown(
+    tunnel_cfg: TunnelConfig,
+    deployment: Option<RemoteDeployment>,
+) -> Result<()> {
     let mut tunnel = ssh::SshTunnel::start(tunnel_cfg.clone()).await?;
 
     let ctrl_c = tokio::signal::ctrl_c();
@@ -188,7 +190,11 @@ async fn pick_remote_free_port(tunnel: &TunnelConfig) -> Result<u16> {
 }
 
 #[cfg_attr(tarpaulin, skip)]
-async fn deploy_traefik(tunnel: &TunnelConfig, dynamic_yaml: &str, cli: &Cli) -> Result<RemoteDeployment> {
+async fn deploy_traefik(
+    tunnel: &TunnelConfig,
+    dynamic_yaml: &str,
+    cli: &Cli,
+) -> Result<RemoteDeployment> {
     let email = &cli.traefik_acme_email;
 
     let static_cfg = TraefikStaticConfig::new(
