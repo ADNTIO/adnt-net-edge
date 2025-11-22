@@ -29,11 +29,11 @@ use crate::traefik::{RoutingConfig, TraefikStaticConfig};
 )]
 struct Cli {
     /// Public URL to expose (e.g. https://public-gateway.example/test)
-    #[arg(long, value_name = "URL")]
+    #[arg(long, value_name = "URL", required = true)]
     url: String,
 
     /// Local port to expose
-    #[arg(long, value_name = "PORT")]
+    #[arg(long, value_name = "PORT", required = true)]
     port: u16,
 
     /// SSH user (default: root)
@@ -53,12 +53,12 @@ struct Cli {
     remote_port: u16,
 
     /// Deploy Traefik on the remote server (Docker)
-    #[arg(long, default_value_t = false)]
+    #[arg(long, default_value_t = true)]
     deploy_traefik: bool,
 
-    /// ACME email for Let's Encrypt (required if --deploy-traefik)
-    #[arg(long)]
-    traefik_acme_email: Option<String>,
+    /// ACME email for Let's Encrypt (required when --deploy-traefik is enabled)
+    #[arg(long, required = true)]
+    traefik_acme_email: String,
 
     /// Remote path for Traefik static config
     #[arg(long, default_value = "/tmp/adnt-net-edge/traefik.yaml")]
@@ -189,10 +189,7 @@ async fn pick_remote_free_port(tunnel: &TunnelConfig) -> Result<u16> {
 
 #[cfg_attr(tarpaulin, skip)]
 async fn deploy_traefik(tunnel: &TunnelConfig, dynamic_yaml: &str, cli: &Cli) -> Result<RemoteDeployment> {
-    let email = cli
-        .traefik_acme_email
-        .as_ref()
-        .ok_or(GatewayError::MissingAcmeEmail)?;
+    let email = &cli.traefik_acme_email;
 
     let static_cfg = TraefikStaticConfig::new(
         email,
@@ -398,8 +395,8 @@ mod tests {
             ssh_host: None,
             ssh_port: 22,
             remote_port: 0,
-            deploy_traefik: false,
-            traefik_acme_email: None,
+            deploy_traefik: true,
+            traefik_acme_email: "test@example.com".into(),
             traefik_static_path: "/etc/traefik/traefik.yaml".into(),
             traefik_dynamic_path: "/etc/traefik/dynamic.yaml".into(),
             identity: None,

@@ -20,17 +20,16 @@ Lightweight SSH + Traefik edge tunnel (similar to Ngrok) running on a small VPS 
 Build and run:
 ```bash
 cargo run -- --url https://prod.example.com/app --port 8080 \
-  --deploy-traefik \
   --traefik-acme-email you@example.com
 ```
 
 Key flags:
-- `--url <public-url>`: public URL (host + optional path) to route.
-- `--port <local-port>`: local port to expose through the tunnel.
+- `--url <public-url>`: **[REQUIRED]** public URL (host + optional path) to route.
+- `--port <local-port>`: **[REQUIRED]** local port to expose through the tunnel.
+- `--traefik-acme-email <email>`: **[REQUIRED]** ACME email for Let's Encrypt certificates.
+- `--deploy-traefik`: deploy Traefik on the remote server (default: **enabled**). Use `--deploy-traefik=false` to disable.
 - `--ssh-user` / `--ssh-host` / `--ssh-port`: SSH connection params (default: user `root`, host from `--url`, port `22`).
 - `--remote-port`: reverse port on the remote (default `0` → auto on server).
-- `--deploy-traefik`: copy configs to `/tmp/adnt-net-edge` on the remote and run Traefik (host network).
-- `--traefik-acme-email`: ACME email (required with `--deploy-traefik`).
 - `--traefik-static-path` / `--traefik-dynamic-path`: override remote config paths (defaults: `/tmp/adnt-net-edge/traefik.yaml` and `/tmp/adnt-net-edge/dynamic.yaml`).
 - `--identity`: SSH key file if not using the default agent.
 
