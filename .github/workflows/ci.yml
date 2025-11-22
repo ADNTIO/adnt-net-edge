@@ -43,7 +43,7 @@ jobs:
         run: |
           set -e
           ssh -V
-          scp -V
+          command -v scp || which scp || where scp
       - name: Cargo fmt
         run: cargo fmt -- --check
       - name: Cargo test
