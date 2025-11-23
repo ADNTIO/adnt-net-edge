@@ -14,9 +14,26 @@ providers:
     filename: "{{DYNAMIC_PATH}}"
     watch: true
 
+# Logging configuration for ACME monitoring
+log:
+  level: INFO
+  format: json
+
+accessLog:
+  format: json
+
 certificatesResolvers:
   letsencrypt:
     acme:
       email: "{{ACME_EMAIL}}"
       storage: "{{ACME_STORAGE}}"
-      tlsChallenge: {}
+      # Use HTTP challenge for better compatibility
+      httpChallenge:
+        entryPoint: web
+      # Fallback to TLS challenge if needed
+      # tlsChallenge: {}
+
+# API for monitoring (optional, can be disabled in production)
+api:
+  dashboard: false
+  insecure: false
