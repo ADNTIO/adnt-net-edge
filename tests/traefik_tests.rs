@@ -83,3 +83,35 @@ fn test_render_dynamic_with_dots_in_domain() {
     assert!(yaml.contains("my_sub_example_com"));
     assert!(yaml.contains("Host(`my.sub.example.com`)"));
 }
+
+#[test]
+fn renders_headers_middleware_for_url_rewriting() {
+    let cfg = cfg("example.com", None, 1234);
+    let yaml = render_dynamic(&cfg).expect("render");
+
+    // Should include headers middleware for proper URL rewriting
+    assert!(yaml.contains("example_com_headers"));
+    assert!(yaml.contains("customRequestHeaders"));
+    assert!(yaml.contains("X-Forwarded-Host: example.com"));
+    assert!(yaml.contains("X-Forwarded-Proto: https"));
+}
+
+#[test]
+fn renders_headers_middleware_with_prefix_for_path_routes() {
+    let cfg = cfg("example.com", Some("/app"), 8080);
+    let yaml = render_dynamic(&cfg).expect("render");
+
+    // Should include X-Forwarded-Prefix when path is present
+    assert!(yaml.contains("X-Forwarded-Host: example.com"));
+    assert!(yaml.contains("X-Forwarded-Proto: https"));
+    assert!(yaml.contains("X-Forwarded-Prefix: /app"));
+}
+
+#[test]
+fn headers_middleware_not_include_prefix_when_no_path() {
+    let cfg = cfg("example.com", None, 1234);
+    let yaml = render_dynamic(&cfg).expect("render");
+
+    // Should not include X-Forwarded-Prefix when there is no path
+    assert!(!yaml.contains("X-Forwarded-Prefix"));
+}
