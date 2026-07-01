@@ -1,0 +1,40 @@
+name: SBOM -> Dependency-Track
+
+on:
+  push:
+
+permissions:
+  contents: read
+
+jobs:
+  sbom:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Node runtime (required by cdxgen)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Generate SBOM (CycloneDX 1.6)
+        run: npx --yes @cyclonedx/cdxgen@latest --spec-version 1.6 -o bom.json
+      - name: Publish to Dependency-Track
+        env:
+          DTRACK_API_KEY: ${{ secrets.DTRACK_API_KEY }}
+        run: |
+          curl -sf -X POST https://dtrack.k8s.adnt.io/api/v1/bom \
+            -H "X-Api-Key: $DTRACK_API_KEY" \
+            -F "autoCreate=true" \
+            -F "projectName=adnt-net-edge" \
+            -F "projectVersion=${{ github.ref_name }}" \
+            -F "bom=@bom.json"
+      - name: Artifact name (branch without "/")
+        if: always()
+        run: echo "SBOM_ARTIFACT=sbom-${GITHUB_REF_NAME//\//-}" >> "$GITHUB_ENV"
+      - name: Archive SBOM
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.SBOM_ARTIFACT }}
+          path: bom.json
+          if-no-files-found: warn
