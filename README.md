@@ -6,6 +6,7 @@ Lightweight SSH + Traefik edge tunnel (similar to Ngrok) running on a small VPS 
 - SSH reverse tunnel with keepalive options.
 - Remote port auto-allocation by default (or pick a fixed port).
 - Traefik dynamic config generation (Host/PathPrefix with optional strip).
+- **URL rewriting support via X-Forwarded headers** (`X-Forwarded-Host`, `X-Forwarded-Proto`, `X-Forwarded-Prefix`) so backend services can generate correct external URLs.
 - One-shot remote Traefik deploy in Docker (host network) with ACME TLS, using temp files under `/tmp/adnt-net-edge`.
 - Graceful shutdown: Ctrl+C stops Traefik (container) and deletes the temp configs on the remote host.
 

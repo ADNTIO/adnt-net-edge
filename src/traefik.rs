@@ -66,7 +66,8 @@ impl TraefikStaticConfig {
 pub fn render_dynamic(config: &RoutingConfig) -> Result<String, serde_yaml::Error> {
     let router_name = format!("{}_router", config.domain.replace('.', "_"));
     let service_name = format!("{}_service", config.domain.replace('.', "_"));
-    let middleware_name = format!("{}_strip", config.domain.replace('.', "_"));
+    let strip_middleware_name = format!("{}_strip", config.domain.replace('.', "_"));
+    let headers_middleware_name = format!("{}_headers", config.domain.replace('.', "_"));
 
     let mut routers = BTreeMap::new();
     routers.insert(
@@ -78,19 +79,42 @@ pub fn render_dynamic(config: &RoutingConfig) -> Result<String, serde_yaml::Erro
             tls: Tls {
                 cert_resolver: "letsencrypt".to_string(),
             },
-            middlewares: build_middlewares_ref(config, &middleware_name),
+            middlewares: build_middlewares_ref(
+                config,
+                &strip_middleware_name,
+                &headers_middleware_name,
+            ),
         },
     );
 
     let mut middlewares = BTreeMap::new();
+
+    // Always add headers middleware for proper URL rewriting
+    // This ensures backend services receive correct X-Forwarded-* headers
+    let mut custom_request_headers = BTreeMap::new();
+    custom_request_headers.insert("X-Forwarded-Host".to_string(), config.domain.clone());
+    custom_request_headers.insert("X-Forwarded-Proto".to_string(), "https".to_string());
+    if let Some(path) = &config.path {
+        custom_request_headers.insert("X-Forwarded-Prefix".to_string(), path.clone());
+    }
+
+    middlewares.insert(
+        headers_middleware_name,
+        MiddlewareConfig::Headers(HeadersMiddleware {
+            custom_request_headers: CustomRequestHeaders {
+                headers: custom_request_headers,
+            },
+        }),
+    );
+
     if let Some(path) = &config.path {
         middlewares.insert(
-            middleware_name,
-            Middleware {
-                strip_prefix: StripPrefix {
+            strip_middleware_name,
+            MiddlewareConfig::StripPrefix(StripPrefixMiddleware {
+                prefixes: StripPrefix {
                     prefixes: vec![path.clone()],
                 },
-            },
+            }),
         );
     }
 
@@ -124,12 +148,16 @@ fn build_rule(config: &RoutingConfig) -> String {
     }
 }
 
-fn build_middlewares_ref(config: &RoutingConfig, middleware_name: &str) -> Vec<String> {
+fn build_middlewares_ref(
+    config: &RoutingConfig,
+    strip_middleware_name: &str,
+    headers_middleware_name: &str,
+) -> Vec<String> {
+    let mut middlewares = vec![headers_middleware_name.to_string()];
     if config.path.is_some() {
-        vec![middleware_name.to_string()]
-    } else {
-        Vec::new()
+        middlewares.push(strip_middleware_name.to_string());
     }
+    middlewares
 }
 
 #[derive(Serialize)]
@@ -141,8 +169,7 @@ struct DynamicConfig {
 struct HttpSection {
     routers: BTreeMap<String, Router>,
     services: BTreeMap<String, Service>,
-    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
-    middlewares: BTreeMap<String, Middleware>,
+    middlewares: BTreeMap<String, MiddlewareConfig>,
 }
 
 #[derive(Serialize)]
@@ -170,9 +197,28 @@ struct Service {
 }
 
 #[derive(Serialize)]
-struct Middleware {
+#[serde(untagged)]
+enum MiddlewareConfig {
+    StripPrefix(StripPrefixMiddleware),
+    Headers(HeadersMiddleware),
+}
+
+#[derive(Serialize)]
+struct StripPrefixMiddleware {
     #[serde(rename = "stripPrefix")]
-    strip_prefix: StripPrefix,
+    prefixes: StripPrefix,
+}
+
+#[derive(Serialize)]
+struct HeadersMiddleware {
+    #[serde(rename = "headers")]
+    custom_request_headers: CustomRequestHeaders,
+}
+
+#[derive(Serialize)]
+struct CustomRequestHeaders {
+    #[serde(rename = "customRequestHeaders")]
+    headers: BTreeMap<String, String>,
 }
 
 #[derive(Serialize)]
