@@ -1,0 +1,226 @@
+name: Pipeline
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  metadata:
+    name: Detect release tag
+    runs-on: ubuntu-latest
+    outputs:
+      is_public: ${{ steps.tag.outputs.is_public }}
+    steps:
+      - id: tag
+        name: Match vX.Y.Z[-alpha|beta|rc.N]
+        shell: bash
+        run: |
+          # v1.0.0 et plus sans suffixe => publie sur Dependency-Track.
+          # v0.x.y et pre-releases alpha/beta/rc => rien n'est publie.
+          is_public=false
+          if [[ "$GITHUB_REF" =~ ^refs/tags/v([0-9]+)\.[0-9]+\.[0-9]+(-(alpha|beta|rc)\.[0-9]+)?$ ]]; then
+            if ((10#${BASH_REMATCH[1]} > 0)) && [[ -z "${BASH_REMATCH[2]}" ]]; then
+              is_public=true
+            fi
+          fi
+          echo "is_public=$is_public" >> "$GITHUB_OUTPUT"
+
+  sbom:
+    name: Generate SBOM
+    runs-on: ubuntu-latest
+    outputs:
+      has_vex: ${{ steps.vex.outputs.has_vex }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Generate CycloneDX 1.6 SBOM
+        run: |
+          mkdir -p sbom
+          npx --yes @cyclonedx/cdxgen@latest \
+            -o sbom/bom.cdx.json \
+            --spec-version 1.6
+      # Seul endroit ou la presence d'un VEX est detectee. Les jobs suivants
+      # lisent needs.sbom.outputs.has_vex et n'ont donc pas besoin du checkout.
+      - name: Link optional VEX to SBOM
+        id: vex
+        shell: bash
+        run: |
+          shopt -s nullglob
+          vex_files=(vex/*.cdx.json)
+          case ${#vex_files[@]} in
+            0) echo "has_vex=false" >> "$GITHUB_OUTPUT"; echo "No VEX file in vex/"; exit 0 ;;
+            1) ;;
+            *) echo "Expected one VEX file, found ${#vex_files[@]}" >&2; exit 1 ;;
+          esac
+          bash scripts/link-vex-to-sbom.sh sbom/bom.cdx.json "${vex_files[0]}" sbom/vex.cdx.json
+          echo "has_vex=true" >> "$GITHUB_OUTPUT"
+          echo "Linked ${vex_files[0]} to the SBOM"
+      - uses: actions/upload-artifact@v5
+        with:
+          name: sbom
+          path: sbom/bom.cdx.json
+          retention-days: 7
+      - uses: actions/upload-artifact@v5
+        if: steps.vex.outputs.has_vex == 'true'
+        with:
+          name: vex
+          path: sbom/vex.cdx.json
+          retention-days: 7
+
+  trivy:
+    name: Scan SBOM with Trivy
+    needs: sbom
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: sbom
+          path: sbom
+      - uses: actions/download-artifact@v8
+        if: needs.sbom.outputs.has_vex == 'true'
+        with:
+          name: vex
+          path: sbom
+      - name: Install Trivy
+        run: curl -sSfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sudo sh -s -- -b /usr/local/bin
+      - name: Fail on HIGH or CRITICAL vulnerabilities
+        shell: bash
+        run: |
+          vex_args=()
+          [[ -f sbom/vex.cdx.json ]] && vex_args=(--vex sbom/vex.cdx.json --show-suppressed)
+          trivy sbom sbom/bom.cdx.json "${vex_args[@]}" --severity HIGH,CRITICAL --exit-code 1
+  test:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Cargo fmt
+        run: cargo fmt -- --check
+      - name: Cargo test
+        run: cargo test --all --locked
+      - name: Cargo tarpaulin (coverage >= 35%)
+        run: |
+          cargo install cargo-tarpaulin --locked
+          cargo tarpaulin --locked --workspace --timeout 120 --fail-under 35
+
+  windows:
+    name: Windows Tests
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Check ssh/scp availability
+        shell: bash
+        run: |
+          set -e
+          ssh -V
+          command -v scp || which scp || where scp
+      - name: Cargo fmt
+        run: cargo fmt -- --check
+      - name: Cargo test
+        run: cargo test --all --locked
+
+  dtrack:
+    name: Publish SBOM and optional VEX to Dependency-Track
+    needs: [metadata, sbom, trivy, test, windows]
+    if: needs.metadata.outputs.is_public == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: sbom
+          path: sbom
+      - uses: actions/download-artifact@v8
+        if: needs.sbom.outputs.has_vex == 'true'
+        with:
+          name: vex
+          path: sbom
+      - name: Publish SBOM and optional VEX
+        env:
+          DTRACK_API_KEY: ${{ secrets.DTRACK_API_KEY }}
+          DTRACK_URL: ${{ vars.DTRACK_URL }}
+          PROJECT_NAME: ${{ github.event.repository.name }}
+          PROJECT_VERSION: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          DTRACK_URL="${DTRACK_URL:?DTRACK_URL repository variable is not set}"
+          DTRACK_URL="${DTRACK_URL%/}"
+          code=$(curl -sS -o response.json -w '%{http_code}' \
+            -X POST "${DTRACK_URL}/api/v1/bom" \
+            -H "X-Api-Key: $DTRACK_API_KEY" \
+            -F "autoCreate=true" \
+            -F "projectName=$PROJECT_NAME" \
+            -F "projectVersion=$PROJECT_VERSION" \
+            -F "bom=@sbom/bom.cdx.json")
+          case "$code" in
+            2*) echo "SBOM published to $PROJECT_NAME@$PROJECT_VERSION" ;;
+            *) cat response.json; exit 1 ;;
+          esac
+
+          if [[ ! -f sbom/vex.cdx.json ]]; then
+            echo "No VEX to publish"
+            exit 0
+          fi
+
+          token=$(jq -er '.token' response.json) || {
+            echo "Dependency-Track returned no SBOM processing token:" >&2
+            cat response.json >&2
+            exit 1
+          }
+          echo "Waiting for SBOM processing token $token"
+          for attempt in {1..20}; do
+            processing=$(curl -sSf \
+              -H "X-Api-Key: $DTRACK_API_KEY" \
+              "${DTRACK_URL}/api/v1/event/token/$token" \
+              | jq -r '.processing')
+            echo "SBOM processing attempt $attempt/20: $processing"
+            [[ "$processing" == false ]] && break
+            sleep 2
+          done
+          [[ "$processing" == false ]] || { echo "Dependency-Track did not finish the SBOM analysis" >&2; exit 1; }
+
+          code=$(curl -sS -o vex-response.json -w '%{http_code}' \
+            -X POST "${DTRACK_URL}/api/v1/vex" \
+            -H "X-Api-Key: $DTRACK_API_KEY" \
+            -F "projectName=$PROJECT_NAME" \
+            -F "projectVersion=$PROJECT_VERSION" \
+            -F "vex=@sbom/vex.cdx.json")
+          case "$code" in
+            2*) echo "VEX accepted for $PROJECT_NAME@$PROJECT_VERSION" ;;
+            *)
+              echo "VEX upload failed with HTTP $code" >&2
+              [[ ! -s vex-response.json ]] || cat vex-response.json >&2
+              exit 1
+              ;;
+          esac
+
+          vex_token=$(jq -er '.token' vex-response.json) || {
+            echo "Dependency-Track returned no VEX processing token:" >&2
+            cat vex-response.json >&2
+            exit 1
+          }
+          echo "Waiting for VEX processing token $vex_token"
+          for attempt in {1..20}; do
+            processing=$(curl -sSf \
+              -H "X-Api-Key: $DTRACK_API_KEY" \
+              "${DTRACK_URL}/api/v1/event/token/$vex_token" \
+              | jq -r '.processing')
+            echo "VEX processing attempt $attempt/20: $processing"
+            [[ "$processing" == false ]] && break
+            sleep 2
+          done
+          [[ "$processing" == false ]] || { echo "Dependency-Track did not finish the VEX import" >&2; exit 1; }
+          echo "VEX published to $PROJECT_NAME@$PROJECT_VERSION"
